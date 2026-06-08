@@ -68,9 +68,23 @@
         } catch { return String.Empty; }
     }" />
 
+    <!-- Preserve explicit deployment discovery operations (/deployments, /deployments/{deployment-id})
+         even though they are not API-type base paths. -->
+    <set-variable name="is-deployment-discovery-request" value="@{
+        var path = context.Variables.GetValueOrDefault<string>("routing-processed-path", String.Empty);
+        var isGet = context.Request.Method.Equals("GET", StringComparison.OrdinalIgnoreCase);
+        return isGet && (
+            path.Equals("/deployments", StringComparison.OrdinalIgnoreCase) ||
+            path.StartsWith("/deployments/", StringComparison.OrdinalIgnoreCase)
+        );
+    }" />
+
     <!-- Reject requests that don't match any configured API type base-path -->
     <choose>
-        <when condition="@(String.IsNullOrEmpty(context.Variables.GetValueOrDefault<string>("api-type", String.Empty)))">
+        <when condition="@(
+            String.IsNullOrEmpty(context.Variables.GetValueOrDefault<string>("api-type", String.Empty))
+            && !context.Variables.GetValueOrDefault<bool>("is-deployment-discovery-request", false)
+        )">
             <trace source="Request-Processor-Blocked" severity="error">
                 <message>@($"Unified AI - Blocked request to {context.Request.Method} {context.Variables.GetValueOrDefault<string>("routing-processed-path", "unknown")} from {context.Request.IpAddress}")</message>
             </trace>
