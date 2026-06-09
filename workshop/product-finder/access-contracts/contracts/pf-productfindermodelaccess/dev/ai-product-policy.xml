@@ -1,0 +1,24 @@
+<policies>
+  <inbound>
+    <base />
+    <check-header name="Ocp-Apim-Subscription-Key" failed-check-httpcode="401" failed-check-error-message="Subscription key required" />
+    <include-fragment fragment-id="set-llm-requested-model" />
+    <set-variable name="allowedModels" value="gpt-4.1" />
+    <include-fragment fragment-id="validate-model-access" />
+    <llm-token-limit counter-key="@(context.Subscription.Id)"
+                     tokens-per-minute="1000"
+                     estimate-prompt-tokens="false"
+                     token-quota="100000"
+                     token-quota-period="Monthly" />
+    <set-variable name="enableResponseHeaders" value="@(true)" />
+  </inbound>
+  <backend>
+    <base />
+  </backend>
+  <outbound>
+    <base />
+  </outbound>
+  <on-error>
+    <base />
+  </on-error>
+</policies>
