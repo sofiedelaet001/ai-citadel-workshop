@@ -1,0 +1,27 @@
+kind: hosted
+name: pf-product-intelligence
+protocols:
+  - protocol: responses
+    version: 1.0.0
+resources:
+  cpu: "1"
+  memory: 2Gi
+environment_variables:
+  - name: PF_MODEL_DEPLOYMENT
+    value: ${PF_MODEL_DEPLOYMENT}
+  - name: PF_MODEL_AZURE_ENDPOINT
+    value: ${PF_MODEL_AZURE_ENDPOINT}
+  - name: PF_MODEL_SUBSCRIPTION_KEY
+    value: ${PF_MODEL_SUBSCRIPTION_KEY}
+  - name: PF_MODEL_API_VERSION
+    value: ${PF_MODEL_API_VERSION}
+  - name: PF_RAG_SEARCH_ENDPOINT
+    value: ${PF_RAG_SEARCH_ENDPOINT}
+  - name: PF_RAG_INDEX
+    value: ${PF_RAG_INDEX}
+  - name: PF_RAG_SEARCH_API_KEY
+    value: ${PF_RAG_SEARCH_API_KEY}
+  - name: OTEL_SERVICE_NAME
+    value: pf-product-intelligence
+  - name: ENABLE_INSTRUMENTATION
+    value: "true"

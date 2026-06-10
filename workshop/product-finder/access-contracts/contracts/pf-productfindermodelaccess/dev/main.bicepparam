@@ -21,7 +21,7 @@ param useCase = {
 }
 
 param apiNameMapping = {
-  LLM: ['unified-ai-api']
+  LLM: ['universal-llm-api']
 }
 
 param services = [
@@ -48,7 +48,7 @@ param foundryConfig = {
   connectionCategory: 'ApiManagement'
   deploymentInPath: 'false'
   isSharedToAll: false
-  inferenceAPIVersion: ''
+  inferenceAPIVersion: '2025-03-01-preview'
   deploymentAPIVersion: ''
   staticModels: []
   listModelsEndpoint: ''
