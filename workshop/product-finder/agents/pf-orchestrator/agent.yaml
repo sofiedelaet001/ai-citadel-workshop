@@ -1,0 +1,29 @@
+kind: hosted
+name: pf-orchestrator
+protocols:
+  - protocol: responses
+    version: 1.0.0
+resources:
+  cpu: "2"
+  memory: 4Gi
+environment_variables:
+  - name: PF_MODEL_DEPLOYMENT
+    value: gpt-4.1
+  - name: PF_MODEL_AZURE_ENDPOINT
+    value: https://apim-6dm44zbv4ms4s.azure-api.net
+  - name: PF_MODEL_SUBSCRIPTION_KEY
+    value: ${PF_MODEL_SUBSCRIPTION_KEY}
+  - name: FOUNDRY_PROJECT_ENDPOINT
+    value: https://aif-citadel-workshop-spoke-1-b881797f.services.ai.azure.com/api/projects/citadel-agents-project
+  - name: PF_FOUNDRY_AGENT_API_VERSION
+    value: 2025-05-15-preview
+  - name: PF_DISCOVERY_MODE
+    value: api_center_live
+  - name: PF_API_CENTER_MCP_URL
+    value: 
+  - name: PF_API_CENTER_APIS_URL
+    value: https://management.azure.com/subscriptions/b881797f-b05b-4743-8516-17a967f31841/resourceGroups/rg-citadel-workshop/providers/Microsoft.ApiCenter/services/apic-rgcitadelworkshop/workspaces/default/apis?api-version=2024-06-01-preview
+  - name: OTEL_SERVICE_NAME
+    value: pf-orchestrator
+  - name: ENABLE_INSTRUMENTATION
+    value: "true"
