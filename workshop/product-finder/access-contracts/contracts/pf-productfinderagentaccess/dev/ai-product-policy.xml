@@ -1,0 +1,42 @@
+<policies>
+  <inbound>
+    <base />
+    <rate-limit-by-key calls="120" renewal-period="60" counter-key="@(context.Subscription.Id)" />
+    <set-variable name="enableResponseHeaders" value="@(true)" />
+    <set-variable name="agentName" value="@{
+        var segments = context.Request.OriginalUrl.Path.Trim('/').Split('/');
+        for (var i = 0; i < segments.Length - 1; i++)
+        {
+            if (string.Equals(segments[i], &quot;agents&quot;, StringComparison.OrdinalIgnoreCase))
+            {
+                return segments[i + 1];
+            }
+        }
+        return string.Empty;
+    }" />
+    <choose>
+      <when condition="@(!string.IsNullOrEmpty((string)context.Variables[&quot;agentName&quot;]))">
+        <set-backend-service backend-id="pf-foundry-project-backend" />
+        <rewrite-uri template="@(&quot;/agents/&quot; + (string)context.Variables[&quot;agentName&quot;] + &quot;/endpoint/protocols/openai/responses?api-version=2025-05-15-preview&quot;)" copy-unmatched-params="false" />
+      </when>
+      <otherwise>
+        <return-response>
+          <set-status code="400" reason="Bad Request" />
+          <set-header name="Content-Type" exists-action="override">
+            <value>application/json</value>
+          </set-header>
+          <set-body>{"error":"Missing agent name in path. Expected route containing /agents/{agentName}."}</set-body>
+        </return-response>
+      </otherwise>
+    </choose>
+  </inbound>
+  <backend>
+    <base />
+  </backend>
+  <outbound>
+    <base />
+  </outbound>
+  <on-error>
+    <base />
+  </on-error>
+</policies>
