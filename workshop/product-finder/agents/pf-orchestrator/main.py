@@ -1,4 +1,4 @@
-import os, asyncio, json, uuid, requests
+import os, asyncio, json, uuid, requests, re
 from typing import Annotated
 from pydantic import Field
 from agent_framework import Agent, tool
@@ -11,6 +11,9 @@ _API_CENTER_MCP_URL = os.environ.get("PF_API_CENTER_MCP_URL", "").strip().rstrip
 _API_CENTER_APIS_URL = os.environ["PF_API_CENTER_APIS_URL"]
 _FOUNDRY_PROJECT_ENDPOINT = os.environ["FOUNDRY_PROJECT_ENDPOINT"].rstrip("/")
 _FOUNDRY_AGENT_API_VERSION = os.environ.get("PF_FOUNDRY_AGENT_API_VERSION", "2025-05-15-preview")
+_SPECIALIST_CALL_MODE = os.environ.get("PF_SPECIALIST_CALL_MODE", "apim").strip().lower()
+_APIM_SPECIALIST_ENDPOINT = (os.environ.get("PF_AGENT_ENDPOINT") or os.environ.get("APIM_GATEWAY_URL") or "").strip().rstrip("/")
+_APIM_SUB_KEY = (os.environ.get("PF_AGENT_SUBSCRIPTION_KEY") or "").strip()
 
 _TOKEN_CRED = DefaultAzureCredential()
 
@@ -46,17 +49,39 @@ def _extract_output_text(payload: object) -> str:
     return str(payload)
 
 
+def _route_suffix(agent_name: str) -> str:
+    return re.sub(r"[^a-z0-9-]", "-", (agent_name or "").strip().lower())
+
+
 def _call_specialist(agent_name: str, message: str, persona: str) -> str:
-    url = f"{_FOUNDRY_PROJECT_ENDPOINT}/agents/{agent_name}/endpoint/protocols/openai/responses?api-version={_FOUNDRY_AGENT_API_VERSION}"
     try:
-        headers = {
-            "Authorization": f"Bearer {_foundry_token()}",
-            "Content-Type": "application/json",
-        }
         payload = {
             "input": f"[GOVERNANCE CONTEXT]\npersona: {persona}\n\n{message}",
             "metadata": {"conversation_id": str(uuid.uuid4()), "target_agent": agent_name},
         }
+
+        if _SPECIALIST_CALL_MODE == "apim":
+            if not _APIM_SPECIALIST_ENDPOINT or not _APIM_SUB_KEY:
+                return json.dumps({
+                    "error": "APIM specialist routing is enabled but PF_AGENT_ENDPOINT/PF_AGENT_SUBSCRIPTION_KEY are missing",
+                    "agent": agent_name,
+                })
+            route = _route_suffix(agent_name)
+            base = _APIM_SPECIALIST_ENDPOINT
+            if base.lower().endswith("/agents"):
+                url = f"{base}/{route}/invoke"
+            else:
+                url = f"{base}/agents/{route}/invoke"
+            headers = {
+                "Ocp-Apim-Subscription-Key": _APIM_SUB_KEY,
+                "Content-Type": "application/json",
+            }
+        else:
+            url = f"{_FOUNDRY_PROJECT_ENDPOINT}/agents/{agent_name}/endpoint/protocols/openai/responses?api-version={_FOUNDRY_AGENT_API_VERSION}"
+            headers = {
+                "Authorization": f"Bearer {_foundry_token()}",
+                "Content-Type": "application/json",
+            }
 
         last_status = None
         last_body = ""
@@ -64,40 +89,24 @@ def _call_specialist(agent_name: str, message: str, persona: str) -> str:
 
         for attempt in range(3):
             try:
-                # Try with SSL verification first
                 resp = requests.post(url, headers=headers, json=payload, timeout=90)
                 last_status = resp.status_code
                 last_body = resp.text
                 if resp.status_code < 500:
                     break
-            except requests.exceptions.SSLError as ssl_err:
-                # SSL cert verification failed - log but try to proceed
-                last_error = str(ssl_err)
-                if attempt < 2:
-                    # Retry: on second attempt, disable SSL verification as fallback
-                    try:
-                        resp = requests.post(url, headers=headers, json=payload, timeout=90, verify=False)
-                        last_status = resp.status_code
-                        last_body = resp.text
-                        if resp.status_code < 500:
-                            break
-                    except Exception as retry_err:
-                        last_error = str(retry_err)
-                        continue
             except Exception as e:
                 last_error = str(e)
                 last_status = None
                 continue
 
         if last_status is None or last_status >= 400:
-            error_msg = f"Direct Foundry call failed: HTTP {last_status}"
-            if last_error and "SSL" in last_error:
-                error_msg += " (SSL cert verification issue - may be intermittent)"
+            mode = "APIM" if _SPECIALIST_CALL_MODE == "apim" else "Direct Foundry"
+            error_msg = f"{mode} specialist call failed: HTTP {last_status}"
             return json.dumps({
                 "error": error_msg,
                 "agent": agent_name,
                 "body": (last_body or "")[:1200],
-                "ssl_error": "SSL_CERT_VERIFY_FAILED" if last_error and "SSL" in last_error else None,
+                "exception": last_error,
             })
         try:
             return _extract_output_text(resp.json())
@@ -350,7 +359,7 @@ def call_specialist_agent(
     message: Annotated[str, Field(description="Message sent to specialist")],
     persona: Annotated[str, Field(description="Request persona")],
 ) -> str:
-    """Call a selected specialist directly via Foundry agent endpoint."""
+    """Call a selected specialist via APIM dynamic route (or direct Foundry in fallback mode)."""
     return _call_specialist(agent_name=agent_name, message=message, persona=persona)
 
 

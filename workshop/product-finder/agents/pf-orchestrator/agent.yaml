@@ -17,6 +17,12 @@ environment_variables:
     value: https://aif-citadel-workshop-spoke-1-b881797f.services.ai.azure.com/api/projects/citadel-agents-project
   - name: PF_FOUNDRY_AGENT_API_VERSION
     value: 2025-05-15-preview
+  - name: PF_SPECIALIST_CALL_MODE
+    value: apim
+  - name: PF_AGENT_ENDPOINT
+    value: https://apim-6dm44zbv4ms4s.azure-api.net/agents
+  - name: PF_AGENT_SUBSCRIPTION_KEY
+    value: ${PF_AGENT_SUBSCRIPTION_KEY}
   - name: PF_DISCOVERY_MODE
     value: api_center_live
   - name: PF_API_CENTER_MCP_URL
