@@ -175,22 +175,17 @@ Proposed working structure:
 - Validate persona mapping rules for external and internal users
 - Run auth simulation tests for persona resolution
 
-7. Notebook 7: Dynamic Routing and Bundled Response Validation
-- Run external customer scenarios
-- Run internal scientist scenarios
-- Confirm multi-agent bundle structure and governance behavior
-
-8. Notebook 8: Observability and Governance Evidence
+7. Notebook 8: Observability and Governance Evidence
 - Validate traces for routing decisions, policy gates, disclaimers, and confidence checks
 
-9. Notebook 9: Optional Cleanup
+8. Notebook 9: Optional Cleanup
 - Controlled teardown for workshop reset
 
 ## Requirement Coverage Map
 
-- Dynamic routing by metadata and intent: Notebooks 4, 5, 7
-- Multi-agent interaction and bundled answer: Notebook 7
-- APIM-only governed traffic: Notebooks 1, 5, 6, 7
+- Dynamic routing by metadata and intent: Notebooks 4, 5, 6
+- Multi-agent interaction and bundled answer: Notebook 6
+- APIM-only governed traffic: Notebooks 1, 5, 6
 - Runtime sync on every deployment: Notebook 4 (mandatory)
 - Data readiness before scenarios: Notebook 2 (mandatory)
 - Persona-aware auth and authorization readiness: Notebook 6 (mandatory)
