@@ -1,4 +1,4 @@
-# Product Finder: Latency and Model Optimization Options
+# Product Finder: Improvement Options and Architecture Recommendations
 
 This note captures the main improvement options discussed for the Product Finder hosted-agent workflow.
 
@@ -333,3 +333,40 @@ Production external customers:
 2. Persona derived from customer tier, contract, or profile claims.
 
 Across all scenarios, the principle is the same: enforce persona at the gateway, not in agent code.
+
+## 4. Spoke-Per-Use-Case Architecture
+
+### 4.1 Why The Workshop Reuses An Existing Spoke
+
+For time efficiency and simplicity, this workshop builds Product Finder on top of the existing Citadel spoke rather than deploying a dedicated one. Deploying a new spoke takes additional time and is not necessary to demonstrate the core patterns. All the governance, APIM, and Foundry capabilities needed for the workshop are already present in the shared spoke.
+
+### 4.2 The Right Architecture In Production
+
+In a real deployment, every AI use case should get its own dedicated spoke. This is the correct pattern for the following reasons:
+
+1. **Isolation**: Each use case has its own Foundry project, ACR, Key Vault, and agent identities. A failure or misconfiguration in one use case does not affect others.
+2. **Governance boundaries**: Access contracts, APIM products, and policies are scoped to the use case, not shared across unrelated workloads.
+3. **Independent lifecycle**: Each spoke can be deployed, updated, or decommissioned without impacting other spokes or the central hub.
+4. **Cost attribution**: Resource consumption is clearly attributable to the use case that owns the spoke.
+5. **Security posture**: Least-privilege identity assignments are straightforward when each use case has its own scope.
+
+### 4.3 How To Deploy A New Spoke
+
+The Citadel hub-and-spoke model makes adding a new spoke straightforward. The `deploy-spoke-foundry.ps1` script in `workshop/scripts/` handles spoke provisioning and accepts a `-SpokeSuffix` parameter to name the spoke after the use case.
+
+Example: deploying a spoke for a new Product Assessor use case:
+
+```powershell
+.\workshop\scripts\deploy-spoke-foundry.ps1 -SpokeSuffix "product-assessor"
+```
+
+This creates an isolated spoke with its own Foundry account, project, ACR, and Key Vault, all connected to the existing Citadel hub. The hub provides centralized APIM governance, policy enforcement, and observability across all spokes without any changes required to the hub itself.
+
+### 4.4 Summary
+
+| Context | Pattern |
+|---|---|
+| Workshop | Reuse existing spoke for speed and simplicity |
+| Production: first use case | Deploy dedicated spoke for Product Finder |
+| Production: second use case | Deploy a new spoke with `-SpokeSuffix product-assessor` |
+| Production: N use cases | N spokes, one hub, full isolation per use case |
