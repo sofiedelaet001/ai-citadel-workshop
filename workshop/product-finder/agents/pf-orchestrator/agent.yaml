@@ -8,7 +8,7 @@ resources:
   memory: 4Gi
 environment_variables:
   - name: PF_MODEL_DEPLOYMENT
-    value: gpt-4.1
+    value: gpt-5.4-mini
   - name: PF_MODEL_AZURE_ENDPOINT
     value: https://apim-6dm44zbv4ms4s.azure-api.net
   - name: PF_MODEL_SUBSCRIPTION_KEY

@@ -2,7 +2,7 @@
   <inbound>
     <base />
     <include-fragment fragment-id="set-llm-requested-model" />
-    <set-variable name="allowedModels" value="gpt-4.1" />
+    <set-variable name="allowedModels" value="gpt-5.4-mini" />
     <include-fragment fragment-id="validate-model-access" />
     <set-variable name="enableResponseHeaders" value="@(true)" />
   </inbound>
