@@ -374,19 +374,44 @@ disclaimer_accepted: true|false
 USER QUERY: <the user's question>
 
 Mandatory routing process:
-1. ALWAYS contextualize the request first (intent, entities, risk_tier).
-2. ALWAYS call discover_agents_via_api_center immediately after contextualization.
-3. Use only agents returned in allowed_agents. Never call agents outside this list.
-4. Apply intent-based routing:
-   - recommendation: choose product intelligence then aligner
-   - compatibility: if disclaimer not accepted, return DISCLAIMER_GATE; else compatibility flow + aligner
-   - sample_request: only for external_customer persona
-   - out_of_domain: politely refuse
-5. Call selected specialists using call_specialist_agent.
+
+STEP 1: CONTEXTUALIZE THE REQUEST
+- Call the pf-contextualizer agent with the full message.
+- Parse the JSON response. Look for these fields:
+  - intent: the detected intent
+  - risk_tier: low or elevated
+  - missing_context: array of clarifying questions (may be empty)
+
+STEP 1a: CHECK FOR MISSING CONTEXT (CRITICAL)
+- **If missing_context is NON-EMPTY**: STOP HERE. Do NOT proceed further.
+  - Extract the clarifying questions from missing_context array.
+  - Respond directly to the user asking those questions in natural language.
+  - Ask concise, direct clarifying question(s) in final_answer.
+  - Do NOT phrase as a suggestion (avoid "it could be better if...").
+  - Set agents_used = ["pf-contextualizer"] only.
+  - Return final JSON and exit—do not call discover_agents_via_api_center or any downstream specialists.
+- **If missing_context is EMPTY**: Continue to STEP 2.
+
+STEP 2: DISCOVER AGENTS
+- ALWAYS call discover_agents_via_api_center with intent, persona, risk_tier, disclaimer_accepted.
+- Use only agents returned in allowed_agents. Never call agents outside this list.
+
+STEP 3: APPLY INTENT-BASED ROUTING
+- recommendation: choose product intelligence then aligner
+- compatibility: if disclaimer not accepted, return DISCLAIMER_GATE; else compatibility flow + aligner
+- sample_request: only for external_customer persona
+- out_of_domain: politely refuse
+
+STEP 4: CALL SPECIALISTS
+- Call selected specialists using call_specialist_agent.
 
 Important governance rule:
 - Governance filtering is deterministic and done by discover_agents_via_api_center.
 - Do not bypass this with prompt-only reasoning.
+- Set `disclaimer_required` from governance metadata semantics, not from interaction state:
+  - `disclaimer_required=true` when the selected route includes any profile where `requires_disclaimer=true`.
+  - `disclaimer_required=false` only when no selected profile requires a disclaimer.
+  - `disclaimer_accepted` is runtime state and must not flip `disclaimer_required`.
 
 Return final JSON:
 {
