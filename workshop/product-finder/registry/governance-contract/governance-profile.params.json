@@ -1,0 +1,270 @@
+{
+  "metadataSchemaVersion": "3.1",
+  "agents": {
+    "pf-contextualizer": {
+      "goal": "Turn raw user asks into a complete, machine-actionable request context for downstream specialists.",
+      "use_when": "Always as the first specialist step to classify intent, extract entities, and detect missing context or elevated risk.",
+      "do_not_use_when": "Intent, entities, and risk are already complete and validated for this turn.",
+      "input_expected": "Raw user request plus governance context (persona and disclaimer_accepted), optionally prior turns.",
+      "output_produced": "Structured context object with intent, entities, missing_context, risk_tier, contextualized_query, and confidence.",
+      "capabilities": [
+        "intent_extraction",
+        "entity_extraction",
+        "query_completion",
+        "risk_classification"
+      ],
+      "supported_intents": [
+        "recommendation",
+        "compatibility",
+        "sample_request",
+        "out_of_domain"
+      ],
+      "required_context_fields": [
+        "query_text"
+      ],
+      "produces": [
+        "intent",
+        "entities",
+        "missing_context",
+        "risk_tier",
+        "contextualized_query",
+        "confidence"
+      ],
+      "preferred_data_sources": [
+        "chat_history",
+        "rag_context"
+      ],
+      "allowed_personas": [
+        "external_customer",
+        "internal_scientist"
+      ],
+      "risk_tiers_supported": [
+        "low",
+        "elevated"
+      ],
+      "orchestration_stage": "contextualization",
+      "execution_order": 100,
+      "priority": 10,
+      "run_after": [],
+      "fallback_agents": [
+        "pf-aligner"
+      ]
+    },
+    "pf-product-intelligence": {
+      "goal": "Provide evidence-based product info, recommendations, and behavioral analysis.",
+      "use_when": "Product information, recommendations, or compatibility analysis support with formulation context.",
+      "do_not_use_when": "Quick yes/no verdict without detailed analysis; use pf-compatibility for simple checks.",
+      "input_expected": "Contextualized query, product entities, persona, and usage conditions.",
+      "output_produced": "Top candidates, recommendation summary, evidence, behavior analysis, and confidence.",
+      "capabilities": [
+        "product_recommendation",
+        "product_search",
+        "catalog_retrieval",
+        "product_behavior_analysis",
+        "formulation_compatibility",
+        "product_chemistry_analysis"
+      ],
+      "supported_intents": [
+        "recommendation",
+        "product_information",
+        "compatibility"
+      ],
+      "conditional_intents": {
+        "compatibility": {
+          "personas": [
+            "internal_scientist"
+          ],
+          "requires_context": [
+            "formulation_analysis",
+            "product_behavior"
+          ]
+        }
+      },
+      "required_context_fields": [
+        "contextualized_query",
+        "entities"
+      ],
+      "produces": [
+        "top_products",
+        "recommendation_summary",
+        "evidence_refs",
+        "confidence",
+        "product_behavior_analysis",
+        "ingredient_compatibility_notes"
+      ],
+      "preferred_data_sources": [
+        "product_datasheets",
+        "functional_descriptions",
+        "technical_descriptions",
+        "ingredient_lists",
+        "formulation_notes"
+      ],
+      "allowed_personas": [
+        "external_customer",
+        "internal_scientist"
+      ],
+      "risk_tiers_supported": [
+        "low",
+        "elevated"
+      ],
+      "orchestration_stage": "retrieval",
+      "execution_order": 300,
+      "priority": 20,
+      "parallel_group": "recommendation-core",
+      "run_after": [
+        "pf-contextualizer"
+      ],
+      "fallback_agents": [
+        "pf-contextualizer"
+      ]
+    },
+    "pf-compatibility": {
+      "goal": "Assess whether product combinations are safe and compatible under risk-aware governance.",
+      "use_when": "Intent is compatibility or mixing safety and elevated-risk reasoning is needed for two or more products.",
+      "do_not_use_when": "User only requests a basic recommendation, general catalog facts, or non-risk transaction handling.",
+      "input_expected": "Contextualized compatibility question with identified product entities and any known usage conditions.",
+      "output_produced": "Compatibility verdict, safety_rationale, warning, requires_vet_guidance, and confidence with risk-aware guidance.",
+      "capabilities": [
+        "compatibility_check",
+        "risk_assessment",
+        "confidence_scoring"
+      ],
+      "supported_intents": [
+        "compatibility"
+      ],
+      "required_context_fields": [
+        "contextualized_query",
+        "entities.products"
+      ],
+      "produces": [
+        "verdict",
+        "safety_rationale",
+        "warning",
+        "requires_vet_guidance",
+        "confidence"
+      ],
+      "preferred_data_sources": [
+        "entity_graph",
+        "compatibility_knowledge",
+        "technical_descriptions"
+      ],
+      "allowed_personas": [
+        "external_customer",
+        "internal_scientist"
+      ],
+      "risk_tiers_supported": [
+        "elevated"
+      ],
+      "requires_disclaimer": true,
+      "min_confidence_threshold": 0.9,
+      "orchestration_stage": "analysis",
+      "execution_order": 450,
+      "priority": 30,
+      "parallel_group": "risk-core",
+      "run_after": [
+        "pf-contextualizer",
+        "pf-product-intelligence"
+      ],
+      "fallback_agents": [
+        "pf-product-intelligence"
+      ]
+    },
+    "pf-sample-request": {
+      "goal": "Handle authenticated product sample request fulfillment outcomes for external customers.",
+      "use_when": "Intent is sample_request and the user asks to initiate product sample fulfillment.",
+      "do_not_use_when": "Request is recommendation-only, compatibility-only, or the persona is not an authenticated external customer.",
+      "input_expected": "Requested product details, persona, and authentication context required for sample workflow.",
+      "output_produced": "request_accepted flag, product confirmation, confirmation_number, estimated_delivery, and auth_status.",
+      "capabilities": [
+        "sample_request_processing",
+        "authentication_verification"
+      ],
+      "supported_intents": [
+        "sample_request"
+      ],
+      "required_context_fields": [
+        "requested_product",
+        "persona",
+        "auth_context"
+      ],
+      "produces": [
+        "request_accepted",
+        "confirmation_number",
+        "estimated_delivery",
+        "auth_status"
+      ],
+      "preferred_data_sources": [
+        "product_catalog"
+      ],
+      "allowed_personas": [
+        "external_customer"
+      ],
+      "risk_tiers_supported": [
+        "low"
+      ],
+      "orchestration_stage": "fulfillment",
+      "execution_order": 900,
+      "priority": 40,
+      "run_after": [
+        "pf-contextualizer",
+        "pf-product-intelligence"
+      ],
+      "fallback_agents": [
+        "pf-product-intelligence"
+      ],
+      "auth_required": true
+    },
+    "pf-aligner": {
+      "goal": "Produce a final, intent-aligned, governance-safe response bundle for the end user.",
+      "use_when": "Always as the final specialist step to consolidate specialist outputs and ensure final response matches original intent.",
+      "do_not_use_when": "The conversation has unresolved missing_context and no downstream specialist outputs should be finalized yet.",
+      "input_expected": "Original user query, contextualized intent, and upstream specialist outputs including governance notices.",
+      "output_produced": "Final answer bundle with intent_matched, governance_notices, removed_claims, and confidence.",
+      "capabilities": [
+        "intent_alignment",
+        "response_validation",
+        "formatting"
+      ],
+      "supported_intents": [
+        "recommendation",
+        "compatibility",
+        "sample_request",
+        "product_information",
+        "out_of_domain"
+      ],
+      "required_context_fields": [
+        "original_query",
+        "draft_response_bundle"
+      ],
+      "produces": [
+        "final_answer",
+        "intent_matched",
+        "governance_notices",
+        "removed_claims",
+        "confidence"
+      ],
+      "preferred_data_sources": [
+        "agent_outputs"
+      ],
+      "allowed_personas": [
+        "external_customer",
+        "internal_scientist"
+      ],
+      "risk_tiers_supported": [
+        "low",
+        "elevated"
+      ],
+      "orchestration_stage": "alignment",
+      "execution_order": 800,
+      "priority": 90,
+      "run_after": [
+        "pf-product-intelligence",
+        "pf-compatibility",
+        "pf-sample-request"
+      ],
+      "fallback_agents": [
+        "pf-contextualizer"
+      ]
+    }
+  }
+}

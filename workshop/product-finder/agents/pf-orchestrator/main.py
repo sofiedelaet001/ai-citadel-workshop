@@ -1,4 +1,5 @@
 import os, asyncio, json, uuid, requests, re
+from collections import defaultdict
 from typing import Annotated
 from pydantic import Field
 from agent_framework import Agent, tool
@@ -26,6 +27,35 @@ def _arm_token() -> str:
 def _foundry_token() -> str:
     token = _TOKEN_CRED.get_token("https://ai.azure.com/.default")
     return token.token
+
+
+def _coerce_list(value: object) -> list[str]:
+    if isinstance(value, list):
+        return [str(x).strip() for x in value if str(x).strip()]
+    if isinstance(value, str):
+        return [x.strip() for x in value.split(",") if x.strip()]
+    return []
+
+
+def _coerce_bool(value: object, default: bool = False) -> bool:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        v = value.strip().lower()
+        if v in ("true", "1", "yes", "y", "on"):
+            return True
+        if v in ("false", "0", "no", "n", "off"):
+            return False
+    if isinstance(value, (int, float)):
+        return bool(value)
+    return default
+
+
+def _coerce_int(value: object, default: int) -> int:
+    try:
+        return int(str(value).strip())
+    except Exception:
+        return default
 
 
 def _extract_output_text(payload: object) -> str:
@@ -87,7 +117,7 @@ def _call_specialist(agent_name: str, message: str, persona: str) -> str:
         last_body = ""
         last_error = None
 
-        for attempt in range(3):
+        for _ in range(3):
             try:
                 resp = requests.post(url, headers=headers, json=payload, timeout=90)
                 last_status = resp.status_code
@@ -117,8 +147,9 @@ def _call_specialist(agent_name: str, message: str, persona: str) -> str:
 
 
 def _parse_governance_profile(api_item: dict) -> dict:
-    props = api_item.get("properties") or {}
-    custom = props.get("customProperties") or {}
+    props = api_item.get("properties") if isinstance(api_item.get("properties"), dict) else {}
+    custom = props.get("customProperties") if isinstance(props.get("customProperties"), dict) else {}
+
     profile_raw = custom.get("governanceProfile")
     profile = {}
     if isinstance(profile_raw, str) and profile_raw.strip():
@@ -127,22 +158,23 @@ def _parse_governance_profile(api_item: dict) -> dict:
         except Exception:
             profile = {}
 
-    # Fill from flattened fields as fallback.
-    if "supported_intents" not in profile:
-        profile["supported_intents"] = [x for x in (custom.get("supportedIntents", "") or "").split(",") if x]
-    if "allowed_personas" not in profile:
-        profile["allowed_personas"] = [x for x in (custom.get("allowedPersonas", "") or "").split(",") if x]
-    if "risk_tiers_supported" not in profile:
-        profile["risk_tiers_supported"] = [x for x in (custom.get("riskTiersSupported", "") or "").split(",") if x]
+    # Flattened metadata fallback (legacy + explicit fields).
+    profile.setdefault("agent_name", custom.get("agentName") or props.get("title") or api_item.get("name") or "")
+    profile.setdefault("description", custom.get("description") or custom.get("summary") or props.get("description") or "")
+    profile.setdefault("capabilities", _coerce_list(profile.get("capabilities") or custom.get("capabilities") or custom.get("skills") or ""))
+    profile.setdefault("supported_intents", _coerce_list(profile.get("supported_intents") or custom.get("supportedIntents") or "*"))
+    profile.setdefault("allowed_personas", _coerce_list(profile.get("allowed_personas") or custom.get("allowedPersonas") or "*"))
+    profile.setdefault("risk_tiers_supported", _coerce_list(profile.get("risk_tiers_supported") or custom.get("riskTiersSupported") or "low,elevated"))
+    profile.setdefault("run_after", _coerce_list(profile.get("run_after") or custom.get("runAfter") or custom.get("dependsOn") or ""))
+    profile.setdefault("orchestration_stage", str(profile.get("orchestration_stage") or custom.get("orchestrationStage") or "execution").strip().lower())
+    profile.setdefault("execution_order", _coerce_int(profile.get("execution_order") or custom.get("executionOrder"), 500))
+    profile.setdefault("priority", _coerce_int(profile.get("priority") or custom.get("priority"), 999))
+    profile.setdefault("trust_level", str(profile.get("trust_level") or custom.get("trustLevel") or "unknown").strip().lower())
+    profile.setdefault("verification_status", str(profile.get("verification_status") or custom.get("verificationStatus") or "unknown").strip().lower())
+    profile.setdefault("requires_disclaimer", _coerce_bool(profile.get("requires_disclaimer") if "requires_disclaimer" in profile else custom.get("requiresDisclaimer"), False))
+    profile.setdefault("auth_required", _coerce_bool(profile.get("auth_required") if "auth_required" in profile else custom.get("authRequired"), False))
+    profile.setdefault("enabled", _coerce_bool(profile.get("enabled") if "enabled" in profile else custom.get("enabled"), True))
 
-    profile.setdefault("agent_name", custom.get("agentName", props.get("title", api_item.get("name", ""))))
-    profile.setdefault("priority", int(custom.get("priority", "999")))
-    profile.setdefault("trust_level", custom.get("trustLevel", "unknown"))
-    profile.setdefault("verification_status", custom.get("verificationStatus", "unknown"))
-    profile.setdefault("orchestration_stage", custom.get("orchestrationStage", "unknown"))
-    profile.setdefault("requires_disclaimer", (custom.get("requiresDisclaimer", "false") == "true"))
-    profile.setdefault("auth_required", (custom.get("authRequired", "false") == "true"))
-    profile.setdefault("supports_simulation", (custom.get("supportsSimulation", "false") == "true"))
     return profile
 
 
@@ -158,7 +190,7 @@ def _discover_from_api_center_rest() -> list[dict]:
     profiles = []
     for item in items:
         profile = _parse_governance_profile(item)
-        agent_name = str(profile.get("agent_name", "")).strip()
+        agent_name = str(profile.get("agent_name", "")).strip().lower()
         if agent_name.startswith("pf"):
             profiles.append(profile)
     return profiles
@@ -196,7 +228,10 @@ def _extract_mcp_assets(payload: object) -> list[dict]:
 
 
 def _mcp_search_pf_assets() -> list[dict]:
-    # API Center data-plane MCP search endpoint: find all assets that start with pf.
+    # Always start discovery with MCP search for pf* assets.
+    if not _API_CENTER_MCP_URL:
+        return []
+
     url = f"{_API_CENTER_MCP_URL}/search"
     payloads = [
         {"query": "pf*"},
@@ -232,7 +267,6 @@ def _mcp_fetch_asset(asset_stub: dict) -> dict | None:
     if not asset_id:
         return None
 
-    # API Center data-plane MCP fetch endpoint: hydrate each matched asset.
     fetch_url = f"{_API_CENTER_MCP_URL}/assets/{asset_id}"
     try:
         resp = requests.get(fetch_url, timeout=25)
@@ -243,7 +277,6 @@ def _mcp_fetch_asset(asset_stub: dict) -> dict | None:
     except Exception:
         pass
 
-    # Fallback attempt: POST fetch contract.
     try:
         resp = requests.post(f"{_API_CENTER_MCP_URL}/fetch", json={"id": asset_id}, timeout=25)
         if resp.status_code < 400:
@@ -260,97 +293,252 @@ def _profile_from_mcp_asset(asset: dict) -> dict:
     props = asset.get("properties") if isinstance(asset.get("properties"), dict) else {}
     custom = props.get("customProperties") if isinstance(props.get("customProperties"), dict) else {}
 
-    # Normalize to existing parser shape.
-    wrapped = {"name": asset.get("name"), "properties": {"title": props.get("title") or asset.get("title"), "customProperties": custom}}
+    wrapped = {
+        "name": asset.get("name"),
+        "properties": {
+            "title": props.get("title") or asset.get("title"),
+            "description": props.get("description") or asset.get("description"),
+            "customProperties": custom,
+        },
+    }
     profile = _parse_governance_profile(wrapped)
-
-    # Last-resort direct mapping if custom properties are already flattened.
     if not profile.get("agent_name"):
         profile["agent_name"] = asset.get("name") or asset.get("title") or ""
     return profile
 
 
-def _discover_from_api_center_mcp(intent: str, persona: str, risk_tier: str) -> list[dict]:
-    # Use MCP endpoint first: search pf* assets, then fetch each matched asset.
-    if not _API_CENTER_MCP_URL:
-        return _discover_from_api_center_rest()
-
+def _discover_profiles() -> dict:
     stubs = _mcp_search_pf_assets()
-    if not stubs:
-        return _discover_from_api_center_rest()
+    if stubs:
+        hydrated = []
+        for stub in stubs:
+            full = _mcp_fetch_asset(stub)
+            hydrated.append(full if isinstance(full, dict) else stub)
 
-    hydrated = []
-    for stub in stubs:
-        full = _mcp_fetch_asset(stub)
-        hydrated.append(full if isinstance(full, dict) else stub)
+        profiles = []
+        for asset in hydrated:
+            if not isinstance(asset, dict):
+                continue
+            profile = _profile_from_mcp_asset(asset)
+            agent_name = str(profile.get("agent_name", "")).strip().lower()
+            if agent_name.startswith("pf"):
+                profiles.append(profile)
 
-    profiles = []
-    for asset in hydrated:
-        if not isinstance(asset, dict):
-            continue
-        profile = _profile_from_mcp_asset(asset)
-        agent_name = str(profile.get("agent_name", "")).strip()
-        if agent_name.startswith("pf"):
-            profiles.append(profile)
+        if profiles:
+            return {
+                "discovery_mode": "api_center_mcp_search",
+                "discovered_count": len(profiles),
+                "profiles": profiles,
+            }
 
-    return profiles or _discover_from_api_center_rest()
+    profiles = _discover_from_api_center_rest()
+    return {
+        "discovery_mode": "api_center_rest_fallback",
+        "discovered_count": len(profiles),
+        "profiles": profiles,
+    }
 
 
-def _deterministic_filter(candidates: list[dict], intent: str, persona: str, risk_tier: str, disclaimer_accepted: bool) -> list[dict]:
-    allowed = []
-    for a in candidates:
-        supported_intents = a.get("supported_intents", []) or []
-        allowed_personas = a.get("allowed_personas", []) or []
-        supported_risk = a.get("risk_tiers_supported", []) or []
+def _matches_rule(value: str, allowed: list[str]) -> bool:
+    if not allowed:
+        return True
+    normalized = {x.strip().lower() for x in allowed if x.strip()}
+    return "*" in normalized or "any" in normalized or value.strip().lower() in normalized
 
-        if intent not in supported_intents:
-            continue
-        if persona not in allowed_personas:
-            continue
-        if risk_tier not in supported_risk:
-            continue
-        if a.get("auth_required", False) and persona != "external_customer":
-            continue
-        if a.get("requires_disclaimer", False) and (risk_tier == "elevated") and (not disclaimer_accepted):
-            continue
 
-        trust = str(a.get("trust_level", "unknown")).lower()
-        verification = str(a.get("verification_status", "unknown")).lower()
-        if risk_tier == "elevated" and not (trust in ("high", "verified") and verification in ("verified", "high")):
-            continue
+def _is_contextualizer(profile: dict) -> bool:
+    stage = str(profile.get("orchestration_stage", "")).lower()
+    caps = {x.lower() for x in _coerce_list(profile.get("capabilities", []))}
+    name = str(profile.get("agent_name", "")).lower()
+    return (
+        "context" in stage
+        or "contextualize" in stage
+        or "intent" in caps
+        or "contextualization" in caps
+        or name.endswith("contextualizer")
+    )
 
-        allowed.append(a)
 
-    allowed.sort(key=lambda x: int(x.get("priority", 999)))
-    return allowed
+def _agent_allowed(profile: dict, intent: str, persona: str, risk_tier: str, disclaimer_accepted: bool) -> tuple[bool, str]:
+    if not _coerce_bool(profile.get("enabled"), True):
+        return False, "disabled"
+
+    if not _matches_rule(intent, _coerce_list(profile.get("supported_intents", []))):
+        return False, "intent_not_supported"
+    if not _matches_rule(persona, _coerce_list(profile.get("allowed_personas", []))):
+        return False, "persona_not_allowed"
+    if not _matches_rule(risk_tier, _coerce_list(profile.get("risk_tiers_supported", []))):
+        return False, "risk_tier_not_supported"
+
+    if _coerce_bool(profile.get("requires_disclaimer"), False) and risk_tier == "elevated" and not disclaimer_accepted:
+        return False, "disclaimer_required"
+
+    # For elevated risk, trust/verification can constrain usage.
+    if risk_tier == "elevated":
+        trust = str(profile.get("trust_level", "unknown")).lower()
+        verification = str(profile.get("verification_status", "unknown")).lower()
+        allow_unverified = _coerce_bool(profile.get("allow_elevated_unverified"), False)
+        if not allow_unverified and trust not in ("high", "verified") and verification not in ("verified", "high"):
+            return False, "trust_or_verification_too_low"
+
+    return True, "allowed"
+
+
+def _stage_rank(profile: dict) -> int:
+    stage = str(profile.get("orchestration_stage", "")).strip().lower()
+    explicit = _coerce_int(profile.get("execution_order"), 500)
+    stage_defaults = {
+        "contextualization": 100,
+        "context": 100,
+        "discovery": 200,
+        "retrieval": 300,
+        "analysis": 400,
+        "reasoning": 500,
+        "validation": 700,
+        "alignment": 800,
+        "fulfillment": 900,
+    }
+    return min(explicit, stage_defaults.get(stage, explicit))
+
+
+def _topological_sort(profiles: list[dict]) -> list[dict]:
+    by_name = {str(p.get("agent_name", "")).strip(): p for p in profiles if str(p.get("agent_name", "")).strip()}
+    indegree = {name: 0 for name in by_name}
+    graph = defaultdict(list)
+
+    for name, profile in by_name.items():
+        for dep in _coerce_list(profile.get("run_after", [])):
+            dep_name = dep.strip()
+            if dep_name in by_name and dep_name != name:
+                graph[dep_name].append(name)
+                indegree[name] += 1
+
+    ready = [n for n, deg in indegree.items() if deg == 0]
+    ready.sort(key=lambda n: (_stage_rank(by_name[n]), _coerce_int(by_name[n].get("priority"), 999), n))
+
+    ordered_names = []
+    while ready:
+        current = ready.pop(0)
+        ordered_names.append(current)
+        for nxt in graph[current]:
+            indegree[nxt] -= 1
+            if indegree[nxt] == 0:
+                ready.append(nxt)
+        ready.sort(key=lambda n: (_stage_rank(by_name[n]), _coerce_int(by_name[n].get("priority"), 999), n))
+
+    if len(ordered_names) != len(by_name):
+        # Cycle fallback: deterministic stage+priority sort.
+        ordered_names = sorted(
+            by_name.keys(),
+            key=lambda n: (_stage_rank(by_name[n]), _coerce_int(by_name[n].get("priority"), 999), n),
+        )
+
+    return [by_name[n] for n in ordered_names]
 
 
 @tool(approval_mode="never_require")
-def discover_agents_via_api_center(
+def discover_pf_agents() -> str:
+    """Always start orchestration by searching API Center MCP for pf* assets and returning governance profiles."""
+    try:
+        result = _discover_profiles()
+        return json.dumps(result)
+    except Exception as e:
+        return json.dumps({
+            "error": str(e),
+            "discovery_mode": _DISCOVERY_MODE,
+            "discovered_count": 0,
+            "profiles": [],
+        })
+
+
+@tool(approval_mode="never_require")
+def plan_dynamic_route(
+    profiles_json: Annotated[str, Field(description="JSON array of discovered profiles")],
     intent: Annotated[str, Field(description="Detected intent")],
     persona: Annotated[str, Field(description="Request persona")],
     risk_tier: Annotated[str, Field(description="low|elevated")],
     disclaimer_accepted: Annotated[bool, Field(description="Whether risk disclaimer was accepted")] = True,
 ) -> str:
-    """ALWAYS call this first. Search/fetch agents from API Center MCP and apply deterministic governance filters."""
+    """Build a metadata-driven specialist execution plan with deterministic governance filtering and ordering."""
     try:
-        discovered = _discover_from_api_center_mcp(intent=intent, persona=persona, risk_tier=risk_tier)
-        allowed = _deterministic_filter(
-            candidates=discovered,
-            intent=intent,
-            persona=persona,
-            risk_tier=risk_tier,
-            disclaimer_accepted=disclaimer_accepted,
+        parsed = json.loads(profiles_json)
+        profiles = parsed if isinstance(parsed, list) else []
+
+        allowed = []
+        blocked = []
+        for p in profiles:
+            if not isinstance(p, dict):
+                continue
+            ok, reason = _agent_allowed(
+                profile=p,
+                intent=intent,
+                persona=persona,
+                risk_tier=risk_tier,
+                disclaimer_accepted=disclaimer_accepted,
+            )
+            if ok:
+                allowed.append(p)
+            else:
+                blocked.append({"agent_name": p.get("agent_name"), "reason": reason})
+
+        ordered = _topological_sort(allowed)
+        route = [str(x.get("agent_name")) for x in ordered if str(x.get("agent_name", "")).strip()]
+
+        blocked_reasons = [str(b.get("reason", "")) for b in blocked if isinstance(b, dict)]
+        has_blocked_disclaimer = any(r == "disclaimer_required" for r in blocked_reasons)
+        intent_norm = str(intent or "").strip().lower()
+        risk_norm = str(risk_tier or "").strip().lower()
+        disclaimer_gate_triggered = (
+            (not disclaimer_accepted)
+            and has_blocked_disclaimer
+            and (intent_norm == "compatibility" or risk_norm == "elevated")
         )
+
+        if disclaimer_gate_triggered:
+            # Hard-stop route when disclaimer is mandatory but not accepted yet.
+            ordered = []
+            route = []
+
+        disclaimer_required = (
+            disclaimer_gate_triggered
+            or any(_coerce_bool(x.get("requires_disclaimer"), False) for x in ordered)
+            or has_blocked_disclaimer
+        )
+
+        # Check if core specialist for this intent was blocked (not a wrapper agent).
+        core_specialist_blocked = False
+        blocked_names = {str(b.get("agent_name", "")).strip().lower() for b in blocked}
+        allowed_names = {str(a.get("agent_name", "")).strip().lower() for a in allowed}
+        wrappers = {"pf-contextualizer", "pf-aligner"}
+        core_specialists = {name for name in (blocked_names | allowed_names) if name not in wrappers and name.startswith("pf")}
+
+        # If all non-wrapper specialists for this intent are blocked, flag it.
+        intent_specific_specialists = core_specialists
+        if intent_specific_specialists and all(name in blocked_names for name in intent_specific_specialists):
+            core_specialist_blocked = True
+
         return json.dumps({
-            "discovery_mode": _DISCOVERY_MODE,
-            "discovered_count": len(discovered),
-            "allowed_count": len(allowed),
-            "allowed_agents": [a.get("agent_name") for a in allowed],
-            "profiles": allowed,
+            "intent": intent,
+            "persona": persona,
+            "risk_tier": risk_tier,
+            "allowed_count": len(route),
+            "route": route,
+            "ordered_profiles": ordered,
+            "blocked": blocked,
+            "disclaimer_gate_triggered": disclaimer_gate_triggered,
+            "disclaimer_required": disclaimer_required,
+            "core_specialist_blocked": core_specialist_blocked,
         })
     except Exception as e:
-        return json.dumps({"error": str(e), "allowed_agents": []})
+        return json.dumps({
+            "error": str(e),
+            "route": [],
+            "ordered_profiles": [],
+            "blocked": [],
+            "disclaimer_gate_triggered": False,
+            "disclaimer_required": False,
+            "core_specialist_blocked": False,
+        })
 
 
 @tool(approval_mode="never_require")
@@ -364,7 +552,7 @@ def call_specialist_agent(
 
 
 ORCHESTRATOR_SYSTEM = """You are the Syensqo Product Finder Orchestrator.
-You dynamically route user queries to specialist agents discovered from API Center.
+Your routing must be metadata-driven and dynamic.
 
 You receive messages in this format:
 [GOVERNANCE CONTEXT]
@@ -373,53 +561,77 @@ disclaimer_accepted: true|false
 
 USER QUERY: <the user's question>
 
-Mandatory routing process:
+Mandatory process:
 
-STEP 1: CONTEXTUALIZE THE REQUEST
-- Call the pf-contextualizer agent with the full message.
-- Parse the JSON response. Look for these fields:
-  - intent: the detected intent
-  - risk_tier: low or elevated
-  - missing_context: array of clarifying questions (may be empty)
+STEP 0 (MANDATORY): DISCOVER AGENTS FIRST
+- Always call discover_pf_agents before any other operation.
+- This tool must be the first tool call in each conversation.
+- Discover all pf* specialists first, then make routing decisions from their metadata.
+- Use discovered profile metadata to decide routing; do not assume static workflows.
 
-STEP 1a: CHECK FOR MISSING CONTEXT (CRITICAL)
-- **If missing_context is NON-EMPTY**: STOP HERE. Do NOT proceed further.
-  - Extract the clarifying questions from missing_context array.
-  - Respond directly to the user asking those questions in natural language.
-  - Ask concise, direct clarifying question(s) in final_answer.
-  - Do NOT phrase as a suggestion (avoid "it could be better if...").
-  - Set agents_used = ["pf-contextualizer"] only.
-  - Return final JSON and exit—do not call discover_agents_via_api_center or any downstream specialists.
-- **If missing_context is EMPTY**: Continue to STEP 2.
+STEP 1: IDENTIFY A CONTEXTUALIZER DYNAMICALLY
+- From discovered profiles, choose the contextualizer agent using metadata:
+  - Prefer orchestration_stage indicating contextualization/context.
+  - If multiple candidates, prefer lower execution_order then lower priority.
+- Call that contextualizer with the full incoming message.
+- Parse JSON for intent, risk_tier, and missing_context.
 
-STEP 2: DISCOVER AGENTS
-- ALWAYS call discover_agents_via_api_center with intent, persona, risk_tier, disclaimer_accepted.
-- Use only agents returned in allowed_agents. Never call agents outside this list.
+STEP 1A: HANDLE MISSING CONTEXT
+- If missing_context is non-empty: stop and ask those clarifying questions.
+- Do not call downstream specialists.
+- Return final JSON with agents_used containing only the contextualizer.
+- If missing_context is empty: continue immediately to STEP 2 in the same turn.
 
-STEP 3: APPLY INTENT-BASED ROUTING
-- recommendation: choose product intelligence then aligner
-- compatibility: if disclaimer not accepted, return DISCLAIMER_GATE; else compatibility flow + aligner
-- sample_request: only for external_customer persona
-- out_of_domain: politely refuse
+STEP 2: BUILD ROUTE FROM METADATA
+- Call plan_dynamic_route with discovered profiles + intent + persona + risk_tier + disclaimer_accepted.
+- Route selection must be driven by metadata filters (supported_intents, allowed_personas, risk_tiers_supported, trust/verification, disclaimer, enabled, dependencies/order).
+- Use route exactly as returned; do not invent ad-hoc steps.
+- If disclaimer_gate_triggered is true, stop and ask the user to accept the disclaimer first.
+- When disclaimer_gate_triggered is true, do NOT call any downstream specialist and do NOT provide a compatibility verdict yet.
+- **CRITICAL: If core_specialist_blocked is true (required specialist for this intent is not available due to governance constraints), immediately stop and return:**
+  ```json
+  {
+    "final_answer": "I cannot execute this request based on your current role and governance constraints. The required capabilities are restricted by your access level.",
+    "agents_used": [],
+    "routing_decision": {
+      "intent": "...",
+      "risk_tier": "...",
+      "persona": "...",
+      "disclaimer_accepted": false,
+      "discovery_mode": "..."
+    },
+    "confidence": 0.0,
+    "governance_notices": ["Request blocked: Required specialist capabilities are not available for this role."],
+    "disclaimer_required": false
+  }
+  ```
+  Do NOT proceed to STEP 3 when core_specialist_blocked is true.
+- If route is empty (but core_specialist_blocked is false), continue to STEP 3 normally with wrapper agents only.
 
-STEP 4: CALL SPECIALISTS
-- Call selected specialists using call_specialist_agent.
+STEP 3: EXECUTE ROUTE
+- Call specialists in route order using call_specialist_agent.
+- Never execute STEP 3 when disclaimer_gate_triggered is true.
+- Skip re-calling the contextualizer if it already ran in STEP 1.
+- Consolidate outputs into final_answer.
 
-Important governance rule:
-- Governance filtering is deterministic and done by discover_agents_via_api_center.
-- Do not bypass this with prompt-only reasoning.
-- Set `disclaimer_required` from governance metadata semantics, not from interaction state:
-  - `disclaimer_required=true` when the selected route includes any profile where `requires_disclaimer=true`.
-  - `disclaimer_required=false` only when no selected profile requires a disclaimer.
-  - `disclaimer_accepted` is runtime state and must not flip `disclaimer_required`.
+Governance rules:
+- Persona/risk/disclaimer/trust constraints are enforced by metadata filtering.
+- Elevated-risk requests must not bypass metadata eligibility.
+- disclaimer_required is true whenever selected or blocked specialists indicate a disclaimer gate.
 
-Return final JSON:
+Return strict JSON:
 {
   "final_answer": "well-formatted response for the user",
   "agents_used": ["list of specialist agent names called"],
-  "routing_decision": {"intent": "...", "risk_tier": "...", "persona": "...", "disclaimer_accepted": false},
+  "routing_decision": {
+    "intent": "...",
+    "risk_tier": "...",
+    "persona": "...",
+    "disclaimer_accepted": false,
+    "discovery_mode": "..."
+  },
   "confidence": 0.0,
-  "governance_notices": ["any disclaimers or policy notices"],
+  "governance_notices": ["policy notices, disclaimers, or gating reasons"],
   "disclaimer_required": false
 }
 """
@@ -436,7 +648,7 @@ async def setup():
         client=client,
         name="pf-orchestrator",
         instructions=ORCHESTRATOR_SYSTEM,
-        tools=[discover_agents_via_api_center, call_specialist_agent],
+        tools=[discover_pf_agents, plan_dynamic_route, call_specialist_agent],
         default_options={"store": False},
     )
     return ResponsesHostServer(agent)
