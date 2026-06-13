@@ -1,6 +1,6 @@
 # Product Finder: Improvement Options and Architecture Recommendations
 
-This note captures the main improvement options discussed for the Product Finder hosted-agent workflow.
+This file captures possible improvements for the Product Finder hosted-agent workflow.
 
 ## 1. Model Choice: Reasoning Quality vs Latency
 
@@ -67,7 +67,7 @@ When to use:
 ### 2.3 Reduce Container Size for Startup Time
 
 Impact:
-- Helps cold start more than hot-path latency.
+- Reduces cold start after fresh build and deployment
 
 What to do:
 - Use multi-stage Dockerfiles.
@@ -88,10 +88,10 @@ When to use:
 ### 2.4 Keep Instances Warm
 
 Impact:
-- Can materially reduce cold-start latency.
+- Can materially reduce cold-start latency for every new session
 
 What to do:
-- Prefer infrastructure support for minimum active instances if the platform exposes it.
+- Prefer infrastructure support for minimum active instances if the platform exposes it (not the case for hosted agents, you would need to custom host in that case)
 - If the platform does not expose that setting, use controlled warm-up traffic as a fallback.
 
 Pros:
@@ -173,21 +173,52 @@ Cons:
 When to use:
 - When multiple specialists are independent once the intent and governance gate are known.
 
-### 2.8 Likely Priority Order
+### 2.8 Add Caching and Memory Layers
+
+Impact:
+- High leverage for repeated queries and multi-turn conversations with recurring context.
+
+What to do:
+- Add short-TTL response caching for deterministic low-risk routes (for example, repeated recommendation lookups with equivalent normalized inputs).
+- Add retrieval-result caching for frequent Azure AI Search queries (query + filters + top_k keying).
+- Add conversation memory summarization so downstream agents receive compact state instead of full history each turn.
+- Cache only post-governance-approved outputs and include persona and risk tier in cache keys.
+
+Pros:
+- Reduces repeated model and retrieval calls.
+- Improves p95/p99 latency for common request patterns.
+- Lowers token usage when memory summaries replace long raw transcript replay.
+
+Cons:
+- Incorrect keying can leak data across personas or contexts.
+- Stale cache entries can reduce answer freshness.
+- Adds invalidation and observability complexity.
+
+When to use:
+- When traces show many repeated intents, repeated retrieval calls, or long multi-turn sessions with high prompt replay cost.
+
+Implementation guardrails:
+1. Include `persona`, `risk_tier`, and relevant governance flags in cache keys.
+2. Use conservative TTLs and explicit invalidation hooks after catalog or compatibility updates.
+3. Avoid caching elevated-risk verdicts unless confidence and policy conditions are explicitly met.
+4. Emit cache hit/miss telemetry so latency gains and correctness risks are measurable.
+
+### 2.9 Likely Priority Order
 
 For the Product Finder architecture, the most promising order is:
 
 1. Reduce unnecessary specialist calls.
 2. Parallelize truly independent specialist calls.
-3. Choose the fastest model that still preserves required reasoning quality.
-4. Keep instances warm if cold starts are a visible problem.
-5. Shorten orchestrator instructions without removing critical governance behavior.
-6. Reduce container size to improve startup behavior.
-7. Increase CPU and memory for better headroom and concurrency.
+3. Add retrieval/response caching and compact memory summaries for repeated paths.
+4. Choose the fastest model that still preserves required reasoning quality.
+5. Keep instances warm if cold starts are a visible problem.
+6. Shorten orchestrator instructions without removing critical governance behavior.
+7. Reduce container size to improve startup behavior.
+8. Increase CPU and memory for better headroom and concurrency.
 
 ## 3. Persona Enforcement: From Workshop Simulation to Production
 
-The workshop uses a simplified persona flow for demonstration. In a real production system, persona should come from a trusted upstream identity control — not hardcoded in agent code or inferred from prompt text. This section covers all realistic options from lightest-weight simulation to full enterprise identity, so you can choose the right level of enforcement for your deployment.
+The workshop uses a simplified persona flow for demonstration. In a real production system, persona should come from a trusted upstream identity control, not hardcoded in agent code or inferred from prompt text. This section covers all realistic options from lightest-weight simulation to full enterprise identity, so you can choose the right level of enforcement for your deployment.
 
 ### 3.1 Core Principle
 
@@ -338,7 +369,7 @@ Across all scenarios, the principle is the same: enforce persona at the gateway,
 
 ### 4.1 Why The Workshop Reuses An Existing Spoke
 
-For time efficiency and simplicity, this workshop builds Product Finder on top of the existing Citadel spoke rather than deploying a dedicated one. Deploying a new spoke takes additional time and is not necessary to demonstrate the core patterns. All the governance, APIM, and Foundry capabilities needed for the workshop are already present in the shared spoke.
+For time efficiency, simplicity and cost this workshop builds Product Finder on top of the existing Citadel spoke rather than deploying a dedicated one. Deploying a new spoke takes additional time and is not necessary to demonstrate the core patterns. All the governance, APIM, and Foundry capabilities needed for the workshop are already present in the shared spoke.
 
 ### 4.2 The Right Architecture In Production
 
