@@ -21,8 +21,6 @@ def _search_context(entity_type: str, query: str, top_k: int = 4):
     url = f"{SEARCH_ENDPOINT}/indexes/{SEARCH_INDEX}/docs/search?api-version={SEARCH_API_VERSION}"
     headers = {"Content-Type": "application/json", "api-key": SEARCH_API_KEY}
     select_fields = "id,title,text,product_a,product_b,compatibility,risk_tier,confidence"
-    if entity_type == "product":
-        select_fields = "id,title,text,product_id"
 
     payload = {
         "search": query or "*",
@@ -55,28 +53,12 @@ def search_compatibility(query: str, top_k: int = 4) -> str:
     except Exception as exc:
         return json.dumps({"error": f"compatibility_search_failed: {exc}", "rows": []}, ensure_ascii=False)
 
-@tool(approval_mode="never_require")
-def search_products(query: str, top_k: int = 6) -> str:
-    """Query live product rows from Azure AI Search and return JSON rows."""
-    try:
-        rows = _search_context(entity_type="product", query=query, top_k=top_k)
-        slim = [
-            {
-                "product_id": row.get("product_id"),
-                "title": row.get("title"),
-                "text": _trim_text(row.get("text", "")),
-            }
-            for row in rows
-        ]
-        return json.dumps({"count": len(slim), "rows": slim}, ensure_ascii=False)
-    except Exception as exc:
-        return json.dumps({"error": f"product_search_failed: {exc}", "rows": []}, ensure_ascii=False)
-
 SYSTEM_PROMPT = """You are the Syensqo Product Compatibility Agent.
-Use Azure AI Search as your source of truth by calling tools for every query.
-Call `search_compatibility` first.
-Call `search_products` only when extra product details are needed.
-Keep tool usage minimal: no more than 2 tool calls per user request.
+Use compatibility retrieval plus upstream product-validation context as your source of truth.
+Call `search_compatibility` for every query.
+Do not perform direct product retrieval in this agent.
+Assume validated product metadata is provided by Product Intelligence when available.
+Keep tool usage minimal: no more than 1 tool call per user request.
 
 Given two product names or IDs, respond ONLY with a JSON object:
 {
@@ -90,7 +72,9 @@ Given two product names or IDs, respond ONLY with a JSON object:
   "requires_vet_guidance": false
 }
 Rules:
-- ALWAYS call `search_compatibility` first; use `search_products` for supporting details
+- ALWAYS call `search_compatibility` first
+- Do not call any product retrieval tool from this agent
+- If validated product details are missing from upstream context, lower confidence and explain the limitation
 - If no explicit compatibility row exists, estimate from tool output and lower confidence
 - confidence < 0.90 for risky queries -> set requires_vet_guidance=true
 - verdict=incompatible or caution -> include explicit warning
@@ -106,7 +90,7 @@ async def setup():
     )
     agent = Agent(client=client, name="pf-compatibility",
                   instructions=SYSTEM_PROMPT,
-                  tools=[search_compatibility, search_products], default_options={"store": False})
+                  tools=[search_compatibility], default_options={"store": False})
     return ResponsesHostServer(agent)
 
 if __name__ == "__main__":

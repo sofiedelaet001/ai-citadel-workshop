@@ -52,7 +52,7 @@
     },
     "pf-product-intelligence": {
       "goal": "Provide evidence-based product info, recommendations, and behavioral analysis.",
-      "use_when": "Product information, recommendations, or compatibility analysis support with formulation context.",
+      "use_when": "Product information, recommendations, compatibility support, and sample-request product validation.",
       "do_not_use_when": "Quick yes/no verdict without detailed analysis; use pf-compatibility for simple checks.",
       "input_expected": "Contextualized query, product entities, persona, and usage conditions.",
       "output_produced": "Top candidates, recommendation summary, evidence, behavior analysis, and confidence.",
@@ -67,7 +67,8 @@
       "supported_intents": [
         "recommendation",
         "product_information",
-        "compatibility"
+        "compatibility",
+        "sample_request"
       ],
       "conditional_intents": {
         "compatibility": {
@@ -122,7 +123,7 @@
       "goal": "Assess whether product combinations are safe and compatible under risk-aware governance.",
       "use_when": "Intent is compatibility or mixing safety and elevated-risk reasoning is needed for two or more products.",
       "do_not_use_when": "User only requests a basic recommendation, general catalog facts, or non-risk transaction handling.",
-      "input_expected": "Contextualized compatibility question with identified product entities and any known usage conditions.",
+      "input_expected": "Contextualized compatibility question with identified product entities, plus validated product context from pf-product-intelligence when available.",
       "output_produced": "Compatibility verdict, safety_rationale, warning, requires_vet_guidance, and confidence with risk-aware guidance.",
       "capabilities": [
         "compatibility_check",
@@ -146,7 +147,7 @@
       "preferred_data_sources": [
         "entity_graph",
         "compatibility_knowledge",
-        "technical_descriptions"
+        "upstream_product_validation"
       ],
       "allowed_personas": [
         "external_customer",
@@ -173,7 +174,7 @@
       "goal": "Handle authenticated product sample request fulfillment outcomes for external customers.",
       "use_when": "Intent is sample_request and the user asks to initiate product sample fulfillment.",
       "do_not_use_when": "Request is recommendation-only, compatibility-only, or the persona is not an authenticated external customer.",
-      "input_expected": "Requested product details, persona, and authentication context required for sample workflow.",
+      "input_expected": "Validated product details from pf-product-intelligence, persona, and authentication context required for sample workflow.",
       "output_produced": "request_accepted flag, product confirmation, confirmation_number, estimated_delivery, and auth_status.",
       "capabilities": [
         "sample_request_processing",
@@ -183,7 +184,8 @@
         "sample_request"
       ],
       "required_context_fields": [
-        "requested_product",
+        "validated_product.product_id",
+        "validated_product.product_name",
         "persona",
         "auth_context"
       ],
@@ -194,7 +196,7 @@
         "auth_status"
       ],
       "preferred_data_sources": [
-        "product_catalog"
+        "upstream_product_validation"
       ],
       "allowed_personas": [
         "external_customer"
