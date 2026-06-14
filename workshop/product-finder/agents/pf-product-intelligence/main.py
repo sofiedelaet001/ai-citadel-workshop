@@ -40,7 +40,7 @@ def search_products(query: str, top_k: int = 8) -> str:
     except Exception as exc:
         return json.dumps({"error": str(exc), "rows": []}, ensure_ascii=False)
 
-SYSTEM_PROMPT = """You are the Syensqo Product Finder Intelligence Agent.
+SYSTEM_PROMPT = """You are the Product Finder Intelligence Agent.
 Use Azure AI Search as your source of truth by calling the `search_products` tool for every user query.
 Do not answer with product claims unless they are grounded in tool output.
 

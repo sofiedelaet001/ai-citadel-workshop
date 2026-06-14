@@ -11,7 +11,7 @@ def generate_confirmation_number() -> str:
     """Generate a realistic workshop confirmation number."""
     return f"SR-{random.randint(100000, 999999)}"
 
-SYSTEM_PROMPT = """You are the Syensqo Sample Request Agent (workshop simulation).
+SYSTEM_PROMPT = """You are the Sample Request Agent (workshop simulation).
 You process product sample requests for authenticated external customers.
 Use the upstream product-validation result from Product Intelligence as your source of truth.
 

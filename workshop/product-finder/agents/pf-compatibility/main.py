@@ -53,7 +53,7 @@ def search_compatibility(query: str, top_k: int = 4) -> str:
     except Exception as exc:
         return json.dumps({"error": f"compatibility_search_failed: {exc}", "rows": []}, ensure_ascii=False)
 
-SYSTEM_PROMPT = """You are the Syensqo Product Compatibility Agent.
+SYSTEM_PROMPT = """You are the Product Compatibility Agent.
 Use compatibility retrieval plus upstream product-validation context as your source of truth.
 Call `search_compatibility` for every query.
 Do not perform direct product retrieval in this agent.

@@ -3,7 +3,7 @@ from agent_framework import Agent
 from agent_framework.openai import OpenAIChatClient
 from agent_framework_foundry_hosting import ResponsesHostServer
 
-SYSTEM_PROMPT = """You are the Syensqo Product Finder Aligner.
+SYSTEM_PROMPT = """You are the Product Finder Aligner.
 You receive a draft response bundle and the original user intent context.
 Your job: validate and reformat the response into a clean final answer.
 

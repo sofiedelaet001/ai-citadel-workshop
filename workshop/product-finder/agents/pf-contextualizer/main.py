@@ -3,7 +3,7 @@ from agent_framework import Agent
 from agent_framework.openai import OpenAIChatClient
 from agent_framework_foundry_hosting import ResponsesHostServer
 
-SYSTEM_PROMPT = """You are the Syensqo Product Finder Contextualizer.
+SYSTEM_PROMPT = """You are the Product Finder Contextualizer.
 Analyze the user query and respond ONLY with a JSON object (no markdown, no prose) containing:
 {
   "intent": "recommendation|compatibility|sample_request|out_of_domain",

@@ -551,7 +551,7 @@ def call_specialist_agent(
     return _call_specialist(agent_name=agent_name, message=message, persona=persona)
 
 
-ORCHESTRATOR_SYSTEM = """You are the Syensqo Product Finder Orchestrator.
+ORCHESTRATOR_SYSTEM = """You are the Product Finder Orchestrator.
 Your routing must be metadata-driven and dynamic.
 
 You receive messages in this format:
