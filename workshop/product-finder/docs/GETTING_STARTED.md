@@ -51,31 +51,47 @@ You must be authenticated to Azure CLI and azd.
 ```bash
 az login
 az account set --subscription <YOUR_SUBSCRIPTION_ID>
-azd auth login
 ```
 
 ---
 
 ## 🔧 Setup Steps
 
-### Step 1: Create or Refresh azd Environment
+### Step 1: Local Workshop Bootstrap 
 
-The workshop uses `azd` to manage environment-specific configuration (resource names, API keys, etc.).
+Run these steps in order on a clean machine/repo clone:
 
-**If you already have an azd environment** from Citadel deployment:
+1. Clone repo
+
+2. Go to correct workshop branch
 ```bash
-Run cell 1 in notebook 1
+git checkout workshop
 ```
 
-**If you're creating a new azd environment:**
+3. Copy over `.azure` folder from existing Citadel-enabled clone
+
+4. Authenticate azd for the right tenant
 ```bash
-azd env new
-azd env set AZURE_SUBSCRIPTION_ID <YOUR_SUBSCRIPTION_ID>
-azd env set AZURE_RESOURCE_GROUP <YOUR_HUB_RESOURCE_GROUP>
-azd env set AZURE_LOCATION <YOUR_REGION>
+azd auth login --tenant-id <TENANT_ID>
 ```
 
-### Step 2: Run Pre-Flight Validation
+5. Refresh environment values
+```bash
+azd env refresh
+```
+
+6. Open Command Palette
+- Press `Ctrl + Shift + P`
+
+7. Python: Create Environment
+
+8. Select `Venv`
+
+9. Select Python interpreter
+
+10. Select `workshop/requirements.txt` only
+
+### Step 3: Run Pre-Flight Validation
 
 Before running notebooks, validate your environment is correctly configured.
 
@@ -93,7 +109,7 @@ python scripts/validate-client-environment.py
 ✅ All prerequisites met. Ready to proceed!
 ```
 
-## Execute Notebooks sequentially in VS Code
+## Step 4: Execute Notebooks sequentially in VS Code
 
 The workshop consists of 10 numbered notebooks in `workshop/product-finder/notebooks/`
 Each notebook builds on the previous one. **Run them in order:**
