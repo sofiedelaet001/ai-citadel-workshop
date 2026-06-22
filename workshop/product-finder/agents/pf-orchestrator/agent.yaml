@@ -26,7 +26,7 @@ environment_variables:
   - name: PF_DISCOVERY_MODE
     value: api_center_live
   - name: PF_API_CENTER_MCP_URL
-    value: 
+    value: https://apic-rgcitadelworkshop.data.swedencentral.azure-apicenter.ms/mcp
   - name: PF_API_CENTER_APIS_URL
     value: https://management.azure.com/subscriptions/b881797f-b05b-4743-8516-17a967f31841/resourceGroups/rg-citadel-workshop/providers/Microsoft.ApiCenter/services/apic-rgcitadelworkshop/workspaces/default/apis?api-version=2024-06-01-preview
   - name: OTEL_SERVICE_NAME
